@@ -1,0 +1,202 @@
+---
+title: "Processing chinstrap penguin Axy trek data"
+author: "Lucas Krüger"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# first lets load packages
+
+```{r}
+
+
+library(track2KBA)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(sp)
+library(adehabitatHR)
+library(bsam)
+library(ggplot2)
+library(patchwork)
+
+
+```
+
+
+### then load and prepare data
+
+```{r}
+
+setwd("D:/UruguayPenguins/Harmony")
+
+
+GPS_HP<-readRDS("HP_GPS_2019_2021_2022.Rds") # raw GPS data
+Dives_HP<-readRDS("HP_Dives_2019_2021_2022.Rds") # dive data processed previously using DiveMove
+
+
+GPS_HP$date<-as.POSIXct(strptime(GPS_HP$Timestamp, format="%d/%m/%Y %H:%M:%S", tz="GMT"))
+
+dfSM<-plyr::ddply(GPS_HP, c("TagID","date"), summarise,
+                  lon=mean(location.lon),lat=mean(location.lat))
+
+dfSM <- dfSM[!duplicated(dfSM[, c("lat", "lon","date")]), ]
+
+
+#check if there are potentially wrong GPS fixes
+
+dfSM<-subset(dfSM,lat>(-63))
+ggplot(dfSM,aes(lon,lat))+geom_point()
+
+
+
+dfMP<-data.frame(id=dfSM$TagID,date=dfSM$date,lc=c(3),lon=dfSM$lon,lat=dfSM$lat) # using the maximum accuracy in argos data
+
+dfMP$id<-paste(dfMP$id,year(dfMP$date))
+
+summary(as.factor(dfMP$id))
+
+
+dfMG<-data.frame(id=dfSM$TagID,date=dfSM$date,lc=c("G"),lon=dfSM$lon,lat=dfSM$lat,
+                 lonerr=c(0.0001),laterr=c(0.0001)) # specifying lat and long errors 0.0001 degrees, around 11m
+
+dfMG$id<-paste(dfMG$id,year(dfMG$date))
+
+
+```
+
+
+###testing parameters with a single individual
+### i did several tests with different tstep, thin and span, but only kept the values
+### that produced good predictions
+
+```{r}
+
+
+ggplot(data=subset(dfMP,id=="HP-11_S1 2020"),aes(lon,lat))+geom_point()
+summary(dfMP$date[dfMP$id=="HP-11_S1"])
+
+bs0<-fit_ssm(data=subset(dfMP,id=="HP-11_S1 2020"),model="DCRW",tstep = 0.006, adapt = 50, samples = 2000, 
+             thin = 5, span = 0.05) # large samples with small span resulted in better predictions
+                                   #processing took 4.4 minutes for one animal
+
+diag_ssm(bs0) # statistical diagnostics are very good
+
+map_ssm(bs0)+theme_bw() # spatial predictions are good
+
+
+bs0b<-fit_ssm(data=subset(dfMG,id=="HP-11_S1 2020"),model="DCRW",tstep = 0.006, adapt = 50, samples = 2000, 
+             thin = 5, span = 0.05) # large samples with small span resulted in better predictions
+                                    #processing took 5.1 minutes for one animal
+
+diag_ssm(bs0b) # statistical diagnostics are really good
+
+map_ssm(bs0b)+theme_bw() # spatial predictions are  good, but the previous was better
+
+
+#comparison
+
+
+map_ssm(bs0)+theme_bw()+ggtitle(label="a. ARGOS location quality class 3")+
+map_ssm(bs0b)+theme_bw()+ggtitle(label="b. Fixed geographical error of 0.0001") 
+# using argos quality class 3 yielded better predictions
+
+
+
+```
+
+### once we found the better method and optimal parameterization, lets apply to all data
+
+```{r}
+
+head(dfMP)
+#ggplot(dfMP,aes(date,lat))+geom_point()
+
+dfMP19<-subset(dfMP,date<'2021-01-01')
+dfMP21<-subset(dfMP,date>'2021-01-01' & date<'2022-11-01')
+dfMP22<-subset(dfMP,date>'2022-12-31')
+
+bs19<-fit_ssm(dfMP19,model="DCRW",tstep = 0.0065, adapt = 50, samples = 2000, 
+             thin = 5, span = 0.05)
+
+diag_ssm(bs19)
+
+map_ssm(bs19)+theme_bw()
+
+
+bs21<-fit_ssm(dfMP21,model="DCRW",tstep = 0.0065, adapt = 50, samples = 2000, 
+              thin = 5, span = 0.05)
+
+diag_ssm(bs21)
+
+map_ssm(bs21)+theme_bw()
+
+bs22<-fit_ssm(dfMP22,model="DCRW",tstep = 0.0065, adapt = 50, samples = 2000, 
+              thin = 5, span = 0.05)
+
+diag_ssm(bs22)
+
+map_ssm(bs22)+theme_bw()
+
+
+map_ssm(bs19)+theme_bw()+ggtitle(label="a. Observed and modeled geographical positions for 2019/20")+
+  map_ssm(bs21)+theme_bw()+ggtitle(label="b. Observed and modeled geographical positions for 2021/22")+
+  map_ssm(bs22)+theme_bw()+ggtitle(label="c. Observed and modeled geographical positions for 2022/23")
+
+ssm19<-get_summary(bs19)
+ssm21<-get_summary(bs21)
+ssm22<-get_summary(bs22)
+
+
+ssm.df<-rbind(ssm19,ssm21,ssm22)
+```
+
+
+### now lets interpolate positions based on dives beggining of descent 
+
+```{r}
+head()
+
+peng_track <- as.ltraj (xy = ssmdf[,c("lon","lat")], date = ssmdf$date,
+                        id = ssmdf$Id,
+                        burst = ssmdf$Id,
+                        proj4string = crs) 
+
+
+mtrack <- move(peng_track) 
+
+spo=CRS('+init=epsg:3031')
+
+move_track<-spTransform(mtrack,CRSobj=spo,center=FALSE)
+
+plot(move_track)
+
+summary(gpsdf$date)
+summary(TDRm$begdesc)
+
+TDRm<-subset(TDRm,begdesc<max(gpsdf$date))
+TDRm<-subset(TDRm,begdesc>min(gpsdf$date))
+
+# Agrate interpolated location
+track_interpolated <- data.frame() 
+
+# for(i in 1:length(move_track@idData$burst)) { # Le pido que pase por cada viaje
+i = 1
+track_sel <- move_track[[i]]
+
+# name <- track_sel@idData$burst # Guarda el nombre
+t_interp <- interpolateTime(move_track, time=Dives_HP$begdesc, spaceMethod='euclidean') # Aca interpola: calcula las posiciones para los tiempos que faltan
+plot(move_track, col="red",pch=20, main="By custom timestamps")
+points(t_interp)
+lines(move_track[[i]], col="red")
+legend("bottomleft", c("True locations", "Interpolated locations"), col=c("red", "black"), pch=c(20,1))
+t_interp_df <- as.data.frame (t_interp) # Datos interpolados
+t_record_df <- as.data.frame (move_track) # Datos observados
+
+t_interp_df <- rbind (t_interp_df, t_record_df) %>%  # Junta ambos
+  arrange (timestamps)
+
+TDRm$timestamps<-TDRm$begdesc
+
+tdrgpsdf<-merge(t_interp_df,TDRm,by="timestamps")
+
