@@ -155,7 +155,7 @@ ssm.df<-rbind(ssm19,ssm21,ssm22)
 ### now lets interpolate positions based on dives beggining of descent 
 
 ```{r}
-head()
+head(DivesHP)
 
 peng_track <- as.ltraj (xy = ssmdf[,c("lon","lat")], date = ssmdf$date,
                         id = ssmdf$Id,
@@ -172,31 +172,32 @@ move_track<-spTransform(mtrack,CRSobj=spo,center=FALSE)
 plot(move_track)
 
 summary(gpsdf$date)
-summary(TDRm$begdesc)
+summary(DivesHP$begdesc)
 
-TDRm<-subset(TDRm,begdesc<max(gpsdf$date))
+TDRm<-subset(DivesHP,begdesc<max(gpsdf$date))
 TDRm<-subset(TDRm,begdesc>min(gpsdf$date))
 
-# Agrate interpolated location
+# Aggregate interpolated location
 track_interpolated <- data.frame() 
 
-# for(i in 1:length(move_track@idData$burst)) { # Le pido que pase por cada viaje
+# for(i in 1:length(move_track@idData$burst)) { # each trip
 i = 1
 track_sel <- move_track[[i]]
 
-# name <- track_sel@idData$burst # Guarda el nombre
-t_interp <- interpolateTime(move_track, time=Dives_HP$begdesc, spaceMethod='euclidean') # Aca interpola: calcula las posiciones para los tiempos que faltan
+# name <- track_sel@idData$burst # keep the names
+t_interp <- interpolateTime(move_track, time=Dives_HP$begdesc, spaceMethod='euclidean') # Interpolating for the beggining of dive descent
 plot(move_track, col="red",pch=20, main="By custom timestamps")
 points(t_interp)
 lines(move_track[[i]], col="red")
 legend("bottomleft", c("True locations", "Interpolated locations"), col=c("red", "black"), pch=c(20,1))
-t_interp_df <- as.data.frame (t_interp) # Datos interpolados
-t_record_df <- as.data.frame (move_track) # Datos observados
+t_interp_df <- as.data.frame (t_interp) # Interpolated positions
+t_record_df <- as.data.frame (move_track) # SSM positions
 
-t_interp_df <- rbind (t_interp_df, t_record_df) %>%  # Junta ambos
+t_interp_df <- rbind (t_interp_df, t_record_df) %>%  # both together
   arrange (timestamps)
 
 TDRm$timestamps<-TDRm$begdesc
 
 tdrgpsdf<-merge(t_interp_df,TDRm,by="timestamps")
 
+saveRDS(tdrgpsdf,"DiveLocations.Rds")
