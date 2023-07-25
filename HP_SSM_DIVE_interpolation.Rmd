@@ -457,7 +457,9 @@ crs=CRS("+proj=longlat +datum=WGS84 +no_defs")
 
 
 head(dd19)
-#dd19$id<-paste(dd19$id,c("csv"),sep=".") # ids in 2019 had not the ".csv"
+
+dd19$id<-paste(dd19$id,c("csv"),sep=".") # ids in 2019 had not the ".csv"
+
 
 ddf<-rbind(dd19,dd21,dd22)
 head(ddf)
@@ -507,6 +509,9 @@ peng_track <- as.ltraj (xy = coordinates(spdf), date = spdf$DateTime,#typeII=T,
 mtrack<-move(peng_track)
 plot(mtrack)
 summary(as.factor(tdr$id))
+
+unique(tdr$id)
+unique(mtrack@idData$id)
 
 combined_TDR <- data.frame()
 for (i in unique(tdr$id)) {
@@ -705,4 +710,83 @@ potSite <- Site %>% dplyr::filter(.data$potentialSite==TRUE) %>%
 
 
 mapSite(Site)
+
+```
+# summary of dives per trip and exploratory plots
+```{r}
+trips$id<-trips$ID
+
+summary(as.factor(trips$id))
+summary(as.factor(divelocs$id))
+
+
+trips$timestamps<-trips$date
+head(trips)
+
+dive_trips<-merge(divelocs,trips, by=c("id","timestamps"))
+
+sumDives<-plyr::ddply(dive_trips, c("id","tripID"), summarise,
+                N    = length(asctim), # number of dives
+                MDivDur=mean(divetim), #mean dive duration
+                MaxDivDur=max(divetim), #maximum dve duration
+                TotDivDur=sum(divetim), # accumulated time spent on dive
+                PComDiv=length(na.omit(botttim))/N, #proportion of complete dives (number of dives with bottom phase)
+                PDivBot=mean(na.omit(botttim)/divetim), # proportion of dive time in bottom phase
+                MBotTim = mean(na.omit(botttim)), # mean time spent at bottom phase
+                AccBotTim=sum(na.omit(botttim)), # accumulated time at bottom phase
+                PTripBot=AccBotTim/TotDivDur, # proportion of trip time in bottom phase
+                MeanBD=mean(na.omit(bottdep.mean)),#mean depth of the bottom phase
+                MaxBD=max(na.omit(bottdep.mean)), #maximum depth of the bottom phase
+              MaxD=max(maxdep), # absolute maximum depth of any dive
+              MMaxD=mean(maxdep), # mean maximum depth of the dives
+              MPDd=mean(postdive.dur), #mean postdive duration
+              WigS=sum(na.omit(bottdist)), ### total amount of wiggling (capture effort)
+              WigM=mean(na.omit(bottdist))) ### number of wiggling per dive
+
+
+sumTrips$id<-sumTrips$ID
+
+sumTrips$season <- ifelse(sumTrips$departure < '2020-06-01 00:00:00', "2019/20",
+                          ifelse(sumTrips$departure >= '2020-06-01 00:00:00' & sumTrips$departure < '2022-06-01', "2021/22",
+                                 "2022/23"))
+
+sumdt<-merge(sumTrips,sumDives,by=c("id","tripID"))
+
+head(sumdt)
+# trips
+ggplot(sumdt,aes(season,duration))+geom_boxplot()+theme_bw()+
+ggplot(sumdt,aes(season,total_dist))+geom_boxplot()+theme_bw()+
+ggplot(sumdt,aes(season,max_dist))+geom_boxplot()+theme_bw()
+
+
+# dive summary variables
+ggplot(sumdt,aes(season,N))+geom_boxplot()+theme_bw()+
+
+  ggplot(sumdt,aes(season,MDivDur))+geom_boxplot()+theme_bw()+
+  ggplot(sumdt,aes(season,MaxDivDur))+geom_boxplot()+theme_bw() +  
+  ggplot(sumdt,aes(season,TotDivDur))+geom_boxplot()+theme_bw()
+
+
+
+ ggplot(sumdt,aes(season,PComDiv))+geom_boxplot()+theme_bw()+
+  ggplot(sumdt,aes(season,PDivBot))+geom_boxplot()+theme_bw()+
+ # ggplot(sumdt,aes(season,MBotTim))+geom_boxplot()+theme_bw()+
+  ggplot(sumdt,aes(season,AccBotTim))+geom_boxplot()+theme_bw()+
+  ggplot(sumdt,aes(season,PTripBot))+geom_boxplot()+theme_bw()
+ 
+ 
+ 
+ # depth variable
+ ggplot(sumdt,aes(season,MeanBD))+geom_boxplot()+theme_bw()+
+   ggplot(sumdt,aes(season,MaxBD))+geom_boxplot()+theme_bw()+
+
+   ggplot(sumdt,aes(season,MaxD))+geom_boxplot()+theme_bw()+
+   ggplot(sumdt,aes(season,MMaxD))+geom_boxplot()+theme_bw()
+
+ 
+ ### effort
+ ggplot(sumdt,aes(season,WigM))+geom_boxplot()+theme_bw()+
+   ggplot(sumdt,aes(season,WigS))+geom_boxplot()+theme_bw()
+
+
 ```
